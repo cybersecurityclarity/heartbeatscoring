@@ -10,7 +10,6 @@
   h1 { font-size: 1.6em; border-bottom: 3px solid #1a1a1a; padding-bottom: 8px; margin-bottom: 4px; }
   .subtitle { font-size: 0.85em; color: #555; margin-bottom: 16px; }
   h2 { font-size: 1.1em; margin-bottom: 10px; }
-  h3 { font-size: 1em; margin-bottom: 8px; color: #333; }
   .tabs { display: flex; gap: 4px; margin-bottom: 20px; flex-wrap: wrap; }
   .tab-btn { padding: 8px 20px; border: 2px solid #1a1a1a; background: #e0e0e0; cursor: pointer; font-family: inherit; font-size: 1em; font-weight: bold; }
   .tab-btn.active { background: #1a1a1a; color: #e0e0e0; }
@@ -32,6 +31,7 @@
   tr:nth-child(even) td { background: #e8e8e8; }
   .result-place { font-weight: bold; color: #c0392b; }
   .placed { background: #d4edda !important; }
+  .alternate { background: #fff3cd !important; }
   .not-placed { background: #f8d7da !important; }
   .note { font-size: 0.8em; color: #555; margin-top: 6px; }
   .flex-row { display: flex; gap: 12px; flex-wrap: wrap; }
@@ -49,6 +49,15 @@
   .type-selector { display: flex; gap: 8px; margin-bottom: 8px; }
   .type-pill { padding: 6px 16px; border: 2px solid #1a1a1a; cursor: pointer; font-family: inherit; font-size: 0.9em; font-weight: bold; background: #e0e0e0; }
   .type-pill.selected { background: #1a1a1a; color: white; }
+  /* Judge counter header row */
+  .judge-counter-row { display: flex; gap: 6px; align-items: flex-end; flex-wrap: wrap; margin-bottom: 4px; padding: 6px 6px 2px 6px; }
+  .judge-counter-cell { width: 58px; text-align: center; font-size: 0.8em; font-weight: bold; flex-shrink: 0; }
+  .judge-counter-cell .counter-label { color: #555; }
+  .judge-counter-cell .counter-val { font-size: 1em; }
+  .judge-counter-cell .counter-done { color: #27ae60; font-size: 1.1em; }
+  .judge-counter-cell .counter-over { color: #c0392b; }
+  /* spacers to align counters with judge columns */
+  .counter-spacer { flex-shrink: 0; }
   /* History */
   .history-entry { border: 2px solid #1a1a1a; margin-bottom: 10px; }
   .history-header { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; background: #1a1a1a; color: white; cursor: pointer; gap: 8px; }
@@ -98,14 +107,14 @@
       </div>
       <div>
         <label>Callbacks (# advancing)</label>
-        <input type="number" id="prelims-callbacks" min="1" max="100" value="6" style="width:70px">
+        <input type="number" id="prelims-callbacks" min="1" max="100" value="6" style="width:70px" onchange="updatePrelimCounterTargets()">
       </div>
     </div>
     <div style="margin-top:8px">
       <label>Competition Type</label>
       <div class="type-selector">
         <button class="type-pill selected" id="prelims-type-strictly" onclick="setPrelimType('strictly')">Strictly (Couples)</button>
-        <button class="type-pill" id="prelims-type-mixmatch" onclick="setPrelimType('mixmatch')">Mix &amp; Match (Lead / Follow)</button>
+        <button class="type-pill" id="prelims-type-mixmatch" onclick="setPrelimType('mixmatch')">Mix &amp; Match (Single Name)</button>
       </div>
     </div>
     <div class="row" style="margin-top:8px">
@@ -115,8 +124,10 @@
 
   <div class="section no-print" id="prelims-entry-section" style="display:none">
     <h2>Enter Competitors &amp; Scores</h2>
-    <p class="note" style="margin-bottom:8px">Each judge marks YES (callback) or NO per competitor.</p>
+    <p class="note" style="margin-bottom:8px">Each judge marks YES (callback) or NO per competitor. Counter shows YES tallies per judge.</p>
     <div id="prelims-error" class="error-msg" style="display:none"></div>
+    <!-- Judge counter row (built dynamically) -->
+    <div id="prelims-counter-row" class="judge-counter-row no-print"></div>
     <div id="prelims-competitors-area"></div>
     <div class="row" style="margin-top:10px; gap:8px;">
       <button class="btn-secondary" onclick="addPrelimCompetitor()">+ Add Competitor</button>
@@ -127,7 +138,7 @@
   <div class="section results-section" id="results-prelims" style="display:none">
     <h2>Prelims Results &ndash; <span id="prelims-results-event-name"></span></h2>
     <div id="prelims-results-table"></div>
-    <div class="note">Sorted by total YES votes descending.</div>
+    <div class="note">Green = callback &nbsp;|&nbsp; Yellow = alternate &nbsp;|&nbsp; Red = out. Sorted by total YES votes descending.</div>
     <div style="margin-top:12px" class="no-print">
       <button class="btn-secondary" onclick="window.print()">Print / Save PDF</button>
     </div>
@@ -254,11 +265,11 @@ function renderHistory() {
 }
 
 // ============================================================
-// PRELIMS
+// PRELIMS — state
 // ============================================================
 var prelimsJudges = 3;
 var prelimsCount = 0;
-var prelimsType = 'strictly'; // 'strictly' | 'mixmatch'
+var prelimsType = 'strictly';
 
 function setPrelimType(t) {
   prelimsType = t;
@@ -266,6 +277,58 @@ function setPrelimType(t) {
   document.getElementById('prelims-type-mixmatch').classList.toggle('selected', t === 'mixmatch');
 }
 
+// ---- Judge YES counter (prelims) ----
+function buildPrelimCounterRow() {
+  var target = parseInt(document.getElementById('prelims-callbacks').value) || 6;
+  var row = document.getElementById('prelims-counter-row');
+  // Calculate spacer width to align with judge columns
+  // Row structure: [Bib label + bib input] [name label + name input(s)] [J1 label + select] ...
+  // We'll render the counter row to mirror just the judge selects, with a leading spacer.
+  var spacerWidth = (prelimsType === 'strictly') ? 260 : 320; // px approx for bib+name fields
+  var html = '<div class="counter-spacer" style="width:' + spacerWidth + 'px;min-width:' + spacerWidth + 'px">&nbsp;</div>';
+  for (var j = 1; j <= prelimsJudges; j++) {
+    html += '<div class="judge-counter-cell" id="prelim-counter-j' + j + '">'
+          + '<div class="counter-label">J' + j + '</div>'
+          + '<div class="counter-val" id="prelim-cval-j' + j + '">0/' + target + '</div>'
+          + '</div>';
+    // spacer for the label before the select
+    html += '<div class="counter-spacer" style="width:22px">&nbsp;</div>';
+  }
+  row.innerHTML = html;
+}
+
+function updatePrelimCounters() {
+  var target = parseInt((document.getElementById('prelims-callbacks') || {}).value) || 6;
+  for (var j = 1; j <= prelimsJudges; j++) {
+    var count = 0;
+    var rows = document.querySelectorAll('[id^="prelim-row-"]');
+    rows.forEach(function(row) {
+      var id = row.id.replace('prelim-row-', '');
+      var el = document.getElementById('prelim-j' + j + '-' + id);
+      if (el && el.value === '1') count++;
+    });
+    var cell = document.getElementById('prelim-cval-j' + j);
+    if (!cell) continue;
+    if (count === target) {
+      cell.innerHTML = '<span class="counter-done">&#10003; ' + count + '/' + target + '</span>';
+    } else if (count > target) {
+      cell.innerHTML = '<span class="counter-over">' + count + '/' + target + ' !</span>';
+    } else {
+      cell.innerHTML = count + '/' + target;
+    }
+  }
+}
+
+function updatePrelimCounterTargets() {
+  // Rebuild counter labels when callback number changes
+  var target = parseInt((document.getElementById('prelims-callbacks') || {}).value) || 6;
+  for (var j = 1; j <= prelimsJudges; j++) {
+    var cell = document.getElementById('prelim-cval-j' + j);
+    if (cell) updatePrelimCounters();
+  }
+}
+
+// ---- Build / add competitor rows ----
 function buildPrelimsTable() {
   prelimsJudges = parseInt(document.getElementById('prelims-num-judges').value) || 3;
   prelimsCount = 0;
@@ -273,7 +336,8 @@ function buildPrelimsTable() {
   document.getElementById('prelims-entry-section').style.display = 'block';
   document.getElementById('results-prelims').style.display = 'none';
   document.getElementById('prelims-error').style.display = 'none';
-  for (var i = 0; i < 6; i++) addPrelimCompetitor();
+  buildPrelimCounterRow();
+  for (var i = 0; i < 8; i++) addPrelimCompetitor();
 }
 
 function addPrelimCompetitor() {
@@ -283,30 +347,37 @@ function addPrelimCompetitor() {
   div.className = 'comp-row';
   div.id = 'prelim-row-' + prelimsCount;
   var id = prelimsCount;
+
   var html = '<span class="field-label">Bib#</span>';
   html += '<input type="text" class="bib-input" placeholder="Bib" id="prelim-bib-' + id + '">';
+  // Both strictly and mix & match just get a single name field in prelims
+  html += '<span class="field-label">Name</span>';
   if (prelimsType === 'strictly') {
-    html += '<span class="field-label">Couple Name</span>';
-    html += '<input type="text" class="name-input" style="width:200px" placeholder="Lead &amp; Follow names" id="prelim-name-' + id + '">';
+    html += '<input type="text" style="width:200px;margin-bottom:0" placeholder="Couple name" id="prelim-name-' + id + '">';
   } else {
-    html += '<span class="field-label">Lead</span>';
-    html += '<input type="text" class="name-input" placeholder="Lead name" id="prelim-lead-' + id + '">';
-    html += '<span class="field-label">Follow</span>';
-    html += '<input type="text" class="name-input" placeholder="Follow name" id="prelim-follow-' + id + '">';
+    html += '<input type="text" style="width:160px;margin-bottom:0" placeholder="Competitor name" id="prelim-name-' + id + '">';
   }
+
   for (var j = 1; j <= prelimsJudges; j++) {
     html += '<span class="field-label">J' + j + '</span>';
-    html += '<select class="judge-select" id="prelim-j' + j + '-' + id + '"><option value="">-</option><option value="1">YES</option><option value="0">NO</option></select>';
+    html += '<select class="judge-select" id="prelim-j' + j + '-' + id + '" onchange="updatePrelimCounters()">'
+          + '<option value="">-</option><option value="1">YES</option><option value="0">NO</option>'
+          + '</select>';
   }
   html += '<button class="btn-danger btn-small" onclick="removePrelimRow(' + id + ')">X</button>';
   div.innerHTML = html;
   area.appendChild(div);
 }
 
-function removePrelimRow(id) { var el = document.getElementById('prelim-row-' + id); if (el) el.remove(); }
+function removePrelimRow(id) {
+  var el = document.getElementById('prelim-row-' + id);
+  if (el) { el.remove(); updatePrelimCounters(); }
+}
 
+// ---- Calculate prelims ----
 function calculatePrelims() {
   var callbacks = parseInt(document.getElementById('prelims-callbacks').value) || 6;
+  var alternates = 2;
   var eventName = document.getElementById('prelims-event-name').value || 'Prelims';
   var compName = document.getElementById('prelims-comp-name').value || '';
   var errEl = document.getElementById('prelims-error');
@@ -316,15 +387,8 @@ function calculatePrelims() {
   var competitors = [];
   rows.forEach(function(row) {
     var id = row.id.replace('prelim-row-', '');
-    var bib = (document.getElementById('prelim-bib-' + id) || {}).value || '';
-    var name;
-    if (prelimsType === 'strictly') {
-      name = ((document.getElementById('prelim-name-' + id) || {}).value || '').trim();
-    } else {
-      var lead = ((document.getElementById('prelim-lead-' + id) || {}).value || '').trim();
-      var follow = ((document.getElementById('prelim-follow-' + id) || {}).value || '').trim();
-      name = [lead, follow].filter(Boolean).join(' / ');
-    }
+    var bib = ((document.getElementById('prelim-bib-' + id) || {}).value || '').trim();
+    var name = ((document.getElementById('prelim-name-' + id) || {}).value || '').trim();
     if (!name) return;
     var yesVotes = 0, scores = [];
     for (var j = 1; j <= prelimsJudges; j++) {
@@ -333,7 +397,7 @@ function calculatePrelims() {
       scores.push(v);
       if (v === 1) yesVotes++;
     }
-    competitors.push({ name: name, bib: bib.trim(), yesVotes: yesVotes, scores: scores });
+    competitors.push({ name: name, bib: bib, yesVotes: yesVotes, scores: scores });
   });
 
   if (!competitors.length) { errEl.textContent = 'No competitors entered.'; errEl.style.display = 'block'; return; }
@@ -342,16 +406,42 @@ function calculatePrelims() {
   var html = '<table><thead><tr><th>Place</th><th>Bib</th><th>Name</th>';
   for (var j = 1; j <= prelimsJudges; j++) html += '<th>J' + j + '</th>';
   html += '<th>YES</th><th>Result</th></tr></thead><tbody>';
+
   competitors.forEach(function(c, i) {
-    var cb = i < callbacks;
-    html += '<tr class="' + (cb ? 'placed' : 'not-placed') + '">';
-    html += '<td>' + (i + 1) + '</td><td>' + c.bib + '</td><td style="text-align:left">' + c.name + '</td>';
+    var rank = i + 1;
+    var isCallback  = rank <= callbacks;
+    var isAlternate = !isCallback && rank <= callbacks + alternates;
+    var rowClass = isCallback ? 'placed' : (isAlternate ? 'alternate' : 'not-placed');
+    var resultLabel, resultColor;
+    if (isCallback)       { resultLabel = 'CALLBACK';  resultColor = '#155724'; }
+    else if (isAlternate) { resultLabel = 'ALTERNATE'; resultColor = '#856404'; }
+    else                  { resultLabel = 'OUT';        resultColor = '#721c24'; }
+
+    // Separator line between callbacks and alternates
+    if (rank === callbacks + 1) {
+      html += '<tr><td colspan="' + (4 + prelimsJudges) + '" style="background:#ccc;font-size:0.8em;text-align:left;padding:3px 8px;">— Alternates —</td></tr>';
+    }
+    // Separator line between alternates and out
+    if (rank === callbacks + alternates + 1) {
+      html += '<tr><td colspan="' + (4 + prelimsJudges) + '" style="background:#ddd;font-size:0.8em;text-align:left;padding:3px 8px;">— Did Not Advance —</td></tr>';
+    }
+
+    html += '<tr class="' + rowClass + '">';
+    html += '<td>' + rank + '</td><td>' + c.bib + '</td><td style="text-align:left">' + c.name + '</td>';
     c.scores.forEach(function(s) { html += '<td>' + (s === null ? '&ndash;' : s === 1 ? 'YES' : 'NO') + '</td>'; });
     html += '<td><strong>' + c.yesVotes + '</strong></td>';
-    html += '<td style="font-weight:bold;color:' + (cb ? '#155724' : '#721c24') + '">' + (cb ? 'CALLBACK' : 'OUT') + '</td>';
+    html += '<td style="font-weight:bold;color:' + resultColor + '">' + resultLabel + '</td>';
     html += '</tr>';
   });
   html += '</tbody></table>';
+
+  // Summary box
+  var callbackList = competitors.slice(0, callbacks);
+  var alternateList = competitors.slice(callbacks, callbacks + alternates);
+  html += '<div class="awards-box">';
+  html += '<strong>CALLBACKS (' + callbacks + '):</strong> ' + callbackList.map(function(c) { return c.name + (c.bib ? ' (' + c.bib + ')' : ''); }).join(', ');
+  html += '<br><br><strong>ALTERNATES:</strong> ' + (alternateList.length ? alternateList.map(function(c) { return c.name + (c.bib ? ' (' + c.bib + ')' : ''); }).join(', ') : '(none)');
+  html += '</div>';
 
   document.getElementById('prelims-results-event-name').textContent = eventName;
   document.getElementById('prelims-results-table').innerHTML = html;
@@ -361,7 +451,7 @@ function calculatePrelims() {
 }
 
 // ============================================================
-// FINALS
+// FINALS — state
 // ============================================================
 var finalsJudges = 3;
 var finalsNumCompetitors = 6;
@@ -372,6 +462,12 @@ function setFinalsType(t) {
   finalsType = t;
   document.getElementById('finals-type-strictly').classList.toggle('selected', t === 'strictly');
   document.getElementById('finals-type-mixmatch').classList.toggle('selected', t === 'mixmatch');
+}
+
+function buildPlacementOptions(n) {
+  var opts = '<option value="">-</option>';
+  for (var i = 1; i <= n; i++) opts += '<option value="' + i + '">' + i + '</option>';
+  return opts;
 }
 
 function buildFinalsTable() {
@@ -385,12 +481,6 @@ function buildFinalsTable() {
   for (var i = 0; i < finalsNumCompetitors; i++) addFinalCompetitor();
 }
 
-function buildPlacementOptions(n) {
-  var opts = '<option value="">-</option>';
-  for (var i = 1; i <= n; i++) opts += '<option value="' + i + '">' + i + '</option>';
-  return opts;
-}
-
 function addFinalCompetitor() {
   finalsCount++;
   var area = document.getElementById('finals-competitors-area');
@@ -399,6 +489,7 @@ function addFinalCompetitor() {
   div.id = 'finals-row-' + finalsCount;
   var id = finalsCount;
   var n = finalsNumCompetitors;
+
   var html = '<span class="field-label">Bib#</span>';
   html += '<input type="text" class="bib-input" placeholder="Bib" id="finals-bib-' + id + '">';
   if (finalsType === 'strictly') {
@@ -422,7 +513,7 @@ function addFinalCompetitor() {
 function removeFinalRow(id) { var el = document.getElementById('finals-row-' + id); if (el) el.remove(); }
 
 // ============================================================
-// RELATIVE PLACEMENT ALGORITHM (fixed)
+// RELATIVE PLACEMENT ALGORITHM
 // ============================================================
 function runRP(competitors, numJudges) {
   var majority = Math.floor(numJudges / 2) + 1;
@@ -432,7 +523,6 @@ function runRP(competitors, numJudges) {
   var unplaced = [];
   for (var i = 0; i < n; i++) unplaced.push(i);
 
-  // For each candidate at each place threshold, compute atOrAbove and sum
   function stats(idx, place) {
     var placements = competitors[idx].placements;
     var aoa = 0, sum = 0;
@@ -444,49 +534,37 @@ function runRP(competitors, numJudges) {
 
   var place = 1;
   while (unplaced.length > 0 && place <= n) {
-    // Gather candidates with majority at this place
     var candidates = [];
     for (var u = 0; u < unplaced.length; u++) {
       var s = stats(unplaced[u], place);
       if (s.aoa >= majority) candidates.push({ idx: unplaced[u], aoa: s.aoa, sum: s.sum });
     }
-
     if (candidates.length === 0) { place++; continue; }
 
-    // Sort: more judges at/above = better; lower sum = better
     candidates.sort(function(a, b) {
       if (b.aoa !== a.aoa) return b.aoa - a.aoa;
       return a.sum - b.sum;
     });
 
-    // The best candidate(s) — group those tied on both aoa AND sum
     var best = candidates[0];
     var tiedGroup = candidates.filter(function(c) { return c.aoa === best.aoa && c.sum === best.sum; });
 
-    // Check: are any of these tied candidates competing for the SAME place
-    // vs candidates already resolved at a lower number? Only award if they
-    // are genuinely the top remaining unplaced.
     if (tiedGroup.length === 1) {
-      // But also confirm no other candidate at a LOWER place threshold
-      // already owns this spot — simply assign
       assignedPlace[tiedGroup[0].idx] = place;
       unplaced = unplaced.filter(function(i) { return i !== tiedGroup[0].idx; });
     } else {
-      // True tie at this place — assign all to same place
       for (var t = 0; t < tiedGroup.length; t++) {
         assignedPlace[tiedGroup[t].idx] = place;
         tieNotes[tiedGroup[t].idx] = 'tie at ' + place;
         unplaced = unplaced.filter(function(i) { return i !== tiedGroup[t].idx; });
       }
-      place += tiedGroup.length - 1; // skip places consumed by tie group
+      place += tiedGroup.length - 1;
     }
     place++;
   }
 
-  // Any still unplaced (shouldn't happen but safety net)
   var leftover = n + 1;
   for (var r = 0; r < unplaced.length; r++) { assignedPlace[unplaced[r]] = leftover++; }
-
   return { assignedPlace: assignedPlace, tieNotes: tieNotes, majority: majority };
 }
 
@@ -497,10 +575,7 @@ function validateFinalsScores(competitors, numJudges) {
     for (var c = 0; c < competitors.length; c++) {
       var p = competitors[c].placements[j - 1];
       if (p === null) continue;
-      if (seen[p]) {
-        errors.push('Judge ' + j + ' gave placement ' + p + ' to more than one competitor.');
-        break;
-      }
+      if (seen[p]) { errors.push('Judge ' + j + ' gave placement ' + p + ' to more than one competitor.'); break; }
       seen[p] = true;
     }
   }
@@ -518,7 +593,7 @@ function calculateFinals() {
   var competitors = [];
   rows.forEach(function(row) {
     var id = row.id.replace('finals-row-', '');
-    var bib = (document.getElementById('finals-bib-' + id) || {}).value || '';
+    var bib = ((document.getElementById('finals-bib-' + id) || {}).value || '').trim();
     var name;
     if (finalsType === 'strictly') {
       name = ((document.getElementById('finals-name-' + id) || {}).value || '').trim();
@@ -533,12 +608,11 @@ function calculateFinals() {
       var el = document.getElementById('finals-j' + j + '-' + id);
       placements.push((el && el.value) ? parseInt(el.value) : null);
     }
-    competitors.push({ name: name, bib: bib.trim(), placements: placements });
+    competitors.push({ name: name, bib: bib, placements: placements });
   });
 
   if (!competitors.length) { errEl.textContent = 'No competitors entered.'; errEl.style.display = 'block'; return; }
 
-  // Validate: no duplicate placements per judge
   var validationErrors = validateFinalsScores(competitors, finalsJudges);
   if (validationErrors.length) {
     errEl.innerHTML = '<strong>Cannot calculate &mdash; duplicate placements found:</strong><br>' + validationErrors.join('<br>');
@@ -549,13 +623,11 @@ function calculateFinals() {
   var rpResult = runRP(competitors, finalsJudges);
   var majority = rpResult.majority;
 
-  // Build sorted results
   var sorted = competitors.map(function(c, i) {
     return { name: c.name, bib: c.bib, placements: c.placements, finalPlace: rpResult.assignedPlace[i], tieNote: rpResult.tieNotes[i] };
   });
   sorted.sort(function(a, b) { return a.finalPlace - b.finalPlace; });
 
-  // Build table
   var html = '<table><thead><tr><th>Final Place</th><th>Bib</th><th>Name</th>';
   for (var j = 1; j <= finalsJudges; j++) html += '<th>Judge ' + j + '</th>';
   html += '<th>Majority (&ge;' + majority + ')</th><th>Sum</th></tr></thead><tbody>';
@@ -576,9 +648,8 @@ function calculateFinals() {
   if (sorted.some(function(c) { return c.tieNote; }))
     html += '<p class="tie-note" style="margin-top:6px">* Tie could not be fully resolved by standard RP. Consider a skate-off or chief judge decision.</p>';
 
-  // Awards summary
   html += '<div class="awards-box"><strong>PLACEMENTS AWARDED:</strong><br>';
-  var placeLabels = ['1st \uD83E\uDD47', '2nd \uD83E\uDD48', '3rd \uD83E\uDD49', '4th', '5th', '6th', '7th', '8th', '9th', '10th'];
+  var placeLabels = ['1st \uD83E\uDD47','2nd \uD83E\uDD48','3rd \uD83E\uDD49','4th','5th','6th','7th','8th','9th','10th'];
   for (var p = 1; p <= placesToAward; p++) {
     var label = placeLabels[p - 1] || (p + 'th');
     var winners = sorted.filter(function(c) { return c.finalPlace === p; });
