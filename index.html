@@ -1,1 +1,418 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Heartbeat Scorer</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Courier New', monospace; background: #e0e0e0; color: #1a1a1a; padding: 20px; }
+  h1 { font-size: 1.6em; border-bottom: 3px solid #1a1a1a; padding-bottom: 8px; margin-bottom: 4px; }
+  .subtitle { font-size: 0.85em; color: #555; margin-bottom: 16px; }
+  h2 { font-size: 1.1em; margin-bottom: 10px; }
+  .tabs { display: flex; gap: 4px; margin-bottom: 20px; flex-wrap: wrap; }
+  .tab-btn { padding: 8px 20px; border: 2px solid #1a1a1a; background: #e0e0e0; cursor: pointer; font-family: inherit; font-size: 1em; font-weight: bold; }
+  .tab-btn.active { background: #1a1a1a; color: #e0e0e0; }
+  .tab-content { display: none; }
+  .tab-content.active { display: block; }
+  .section { background: #f5f5f5; border: 2px solid #1a1a1a; padding: 16px; margin-bottom: 16px; }
+  label { display: block; font-weight: bold; margin-bottom: 4px; font-size: 0.9em; }
+  input, select { font-family: inherit; font-size: 0.9em; border: 2px solid #1a1a1a; padding: 5px 8px; width: 100%; margin-bottom: 8px; background: #fafafa; }
+  input[type="number"] { width: 70px; }
+  button { font-family: inherit; font-size: 0.9em; padding: 7px 16px; border: 2px solid #1a1a1a; cursor: pointer; font-weight: bold; }
+  .btn-primary { background: #1a1a1a; color: white; }
+  .btn-secondary { background: #f5f5f5; color: #1a1a1a; }
+  .btn-danger { background: #c0392b; color: white; border-color: #c0392b; }
+  .btn-small { padding: 3px 10px; font-size: 0.8em; }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .row > * { flex-shrink: 0; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.88em; margin-top: 8px; }
+  th, td { border: 1px solid #888; padding: 5px 8px; text-align: center; }
+  th { background: #1a1a1a; color: white; }
+  tr:nth-child(even) td { background: #e8e8e8; }
+  .result-place { font-weight: bold; color: #c0392b; }
+  .placed { background: #d4edda !important; }
+  .not-placed { background: #f8d7da !important; }
+  .note { font-size: 0.8em; color: #555; margin-top: 6px; }
+  .flex-row { display: flex; gap: 12px; flex-wrap: wrap; }
+  .flex-row > * { flex: 1; min-width: 200px; }
+  .tie-note { color: #c0392b; font-size: 0.8em; font-style: italic; }
+  /* History */
+  .history-entry { border: 2px solid #1a1a1a; margin-bottom: 10px; }
+  .history-header { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; background: #1a1a1a; color: white; cursor: pointer; gap: 8px; }
+  .history-header:hover { background: #333; }
+  .history-body { padding: 12px; display: none; background: #f5f5f5; }
+  .history-body.open { display: block; }
+  .history-meta { font-size: 0.8em; color: #666; margin-bottom: 8px; }
+  .history-tag { font-size: 0.75em; padding: 2px 8px; border: 1px solid #555; margin-left: 8px; background: #444; }
+  .empty-history { color: #888; font-style: italic; font-size: 0.9em; }
+  @media print {
+    body { background: white; padding: 10px; }
+    .tabs, .no-print { display: none !important; }
+    .section.no-print { display: none !important; }
+    .results-section { display: block !important; border: none; }
+    .tab-content { display: block !important; }
+    h1 { font-size: 1.3em; }
+  }
+</style>
+</head>
+<body>
 
+<h1>&#9829; Heartbeat Scorer</h1>
+<p class="subtitle">Relative Placement scoring tool for Heartbeat Swing &amp; Blues</p>
+
+<div class="tabs no-print">
+  <button class="tab-btn active" onclick="switchTab('prelims', this)">Prelims</button>
+  <button class="tab-btn" onclick="switchTab('finals', this)">Finals</button>
+  <button class="tab-btn" onclick="switchTab('history', this)">History</button>
+</div>
+
+<!-- PRELIMS -->
+<div id="tab-prelims" class="tab-content active">
+  <div class="section no-print">
+    <h2>Setup &ndash; Prelims</h2>
+    <div class="flex-row">
+      <div>
+        <label>Event Name</label>
+        <input type="text" id="prelims-event-name" placeholder="e.g. Novice Jack &amp; Jill">
+      </div>
+      <div>
+        <label>Competition / Weekend Name</label>
+        <input type="text" id="prelims-comp-name" placeholder="e.g. Heartbeat 2025">
+      </div>
+      <div>
+        <label>Number of Judges</label>
+        <input type="number" id="prelims-num-judges" min="1" max="10" value="3" style="width:70px">
+      </div>
+      <div>
+        <label>Callbacks (# advancing)</label>
+        <input type="number" id="prelims-callbacks" min="1" max="100" value="6" style="width:70px">
+      </div>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <button class="btn-primary" onclick="buildPrelimsTable()">Build Score Sheet</button>
+    </div>
+  </div>
+
+  <div class="section no-print" id="prelims-entry-section" style="display:none">
+    <h2>Enter Competitors &amp; Scores</h2>
+    <p class="note" style="margin-bottom:8px">Each judge marks YES (callback) or NO per competitor.</p>
+    <div id="prelims-competitors-area"></div>
+    <div class="row" style="margin-top:8px; gap:8px;">
+      <button class="btn-secondary" onclick="addPrelimCompetitor()">+ Add Competitor</button>
+      <button class="btn-primary" onclick="calculatePrelims()">Calculate Results</button>
+    </div>
+  </div>
+
+  <div class="section results-section" id="results-prelims" style="display:none">
+    <h2>Prelims Results &ndash; <span id="prelims-results-event-name"></span></h2>
+    <div id="prelims-results-table"></div>
+    <div class="note">Sorted by total YES votes descending.</div>
+    <div style="margin-top:12px" class="no-print">
+      <button class="btn-secondary" onclick="window.print()">Print / Save PDF</button>
+    </div>
+  </div>
+</div>
+
+<!-- FINALS -->
+<div id="tab-finals" class="tab-content">
+  <div class="section no-print">
+    <h2>Setup &ndash; Finals</h2>
+    <div class="flex-row">
+      <div>
+        <label>Event Name</label>
+        <input type="text" id="finals-event-name" placeholder="e.g. Novice Jack &amp; Jill Finals">
+      </div>
+      <div>
+        <label>Competition / Weekend Name</label>
+        <input type="text" id="finals-comp-name" placeholder="e.g. Heartbeat 2025">
+      </div>
+      <div>
+        <label>Number of Judges</label>
+        <input type="number" id="finals-num-judges" min="1" max="10" value="3" style="width:70px">
+      </div>
+      <div>
+        <label>Number of Places to Award</label>
+        <input type="number" id="finals-places" min="1" max="20" value="3" style="width:70px">
+      </div>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <button class="btn-primary" onclick="buildFinalsTable()">Build Score Sheet</button>
+    </div>
+  </div>
+
+  <div class="section no-print" id="finals-entry-section" style="display:none">
+    <h2>Enter Competitors &amp; Placements</h2>
+    <p class="note" style="margin-bottom:8px">Enter each judge's placement (1 = best). Each competitor gets a unique placement per judge.</p>
+    <div id="finals-competitors-area"></div>
+    <div class="row" style="margin-top:8px; gap:8px;">
+      <button class="btn-secondary" onclick="addFinalCompetitor()">+ Add Competitor</button>
+      <button class="btn-primary" onclick="calculateFinals()">Calculate Results</button>
+    </div>
+  </div>
+
+  <div class="section results-section" id="results-finals" style="display:none">
+    <h2>Finals Results &ndash; <span id="finals-results-event-name"></span></h2>
+    <div id="finals-results-table"></div>
+    <div class="note"><strong>RP Algorithm:</strong> Majority of judges placing at or above a position wins. Tiebreak: more judges at/above &rarr; lower sum of placements &rarr; expand to next place.</div>
+    <div style="margin-top:12px" class="no-print">
+      <button class="btn-secondary" onclick="window.print()">Print / Save PDF</button>
+    </div>
+  </div>
+</div>
+
+<!-- HISTORY -->
+<div id="tab-history" class="tab-content">
+  <div class="section">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; flex-wrap:wrap; gap:8px;">
+      <h2 style="margin:0">Competition History</h2>
+      <button class="btn-danger btn-small no-print" onclick="clearAllHistory()">Clear All History</button>
+    </div>
+    <p class="note" style="margin-bottom:12px">Results are saved automatically in your browser each time you calculate. Anyone using this device/browser can view past results here.</p>
+    <div id="history-list"></div>
+  </div>
+</div>
+
+<script>
+// TAB SWITCHING
+function switchTab(name, btn) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.add('active');
+  if (btn) btn.classList.add('active');
+  if (name === 'history') renderHistory();
+}
+
+// HISTORY
+function getHistory() {
+  try { return JSON.parse(localStorage.getItem('heartbeat_history') || '[]'); } catch { return []; }
+}
+function saveHistory(h) { localStorage.setItem('heartbeat_history', JSON.stringify(h)); }
+function addToHistory(entry) {
+  const h = getHistory();
+  h.unshift({ ...entry, id: Date.now(), savedAt: new Date().toLocaleString() });
+  saveHistory(h);
+}
+function clearAllHistory() {
+  if (confirm('Delete all competition history? This cannot be undone.')) {
+    localStorage.removeItem('heartbeat_history');
+    renderHistory();
+  }
+}
+function deleteHistoryEntry(id) {
+  saveHistory(getHistory().filter(e => e.id !== id));
+  renderHistory();
+}
+function toggleHistoryBody(id) {
+  const el = document.getElementById('hbody-' + id);
+  if (el) el.classList.toggle('open');
+}
+function renderHistory() {
+  const h = getHistory();
+  const container = document.getElementById('history-list');
+  if (!h.length) {
+    container.innerHTML = '<p class="empty-history">No competitions recorded yet. Results will appear here after you calculate prelims or finals.</p>';
+    return;
+  }
+  container.innerHTML = h.map(entry => `
+    <div class="history-entry">
+      <div class="history-header" onclick="toggleHistoryBody(${entry.id})">
+        <span>${entry.compName ? '<strong>' + entry.compName + '</strong> &mdash; ' : ''}${entry.eventName}<span class="history-tag">${entry.type}</span></span>
+        <span style="font-size:0.78em;color:#aaa;white-space:nowrap">${entry.savedAt} &#9660;</span>
+      </div>
+      <div class="history-body" id="hbody-${entry.id}">
+        <div class="history-meta">Saved: ${entry.savedAt} &nbsp;|&nbsp; Judges: ${entry.numJudges}</div>
+        ${entry.tableHTML}
+        <div style="margin-top:10px" class="no-print">
+          <button class="btn-danger btn-small" onclick="deleteHistoryEntry(${entry.id})">Delete This Entry</button>
+        </div>
+      </div>
+    </div>`).join('');
+}
+
+// PRELIMS
+var prelimsJudges = 3, prelimsCount = 0;
+function buildPrelimsTable() {
+  prelimsJudges = parseInt(document.getElementById('prelims-num-judges').value) || 3;
+  prelimsCount = 0;
+  document.getElementById('prelims-competitors-area').innerHTML = '';
+  document.getElementById('prelims-entry-section').style.display = 'block';
+  document.getElementById('results-prelims').style.display = 'none';
+  for (var i = 0; i < 6; i++) addPrelimCompetitor();
+}
+function addPrelimCompetitor() {
+  prelimsCount++;
+  var area = document.getElementById('prelims-competitors-area');
+  var div = document.createElement('div');
+  div.className = 'row'; div.id = 'prelim-row-' + prelimsCount;
+  div.style.cssText = 'margin-bottom:5px;flex-wrap:wrap';
+  var html = '<input type="text" placeholder="Competitor name" style="width:160px;margin-bottom:0" id="prelim-name-' + prelimsCount + '">';
+  html += '<span style="font-size:0.85em;padding:0 4px">Bib#</span>';
+  html += '<input type="text" placeholder="Bib" style="width:55px;margin-bottom:0" id="prelim-bib-' + prelimsCount + '">';
+  for (var j = 1; j <= prelimsJudges; j++) {
+    html += '<span style="font-size:0.85em;padding:0 4px">J' + j + ':</span>';
+    html += '<select id="prelim-j' + j + '-' + prelimsCount + '" style="width:62px;margin-bottom:0"><option value="">-</option><option value="1">YES</option><option value="0">NO</option></select>';
+  }
+  html += '<button class="btn-danger btn-small" onclick="removePrelimRow(' + prelimsCount + ')">X</button>';
+  div.innerHTML = html; area.appendChild(div);
+}
+function removePrelimRow(id) { var el = document.getElementById('prelim-row-' + id); if (el) el.remove(); }
+function calculatePrelims() {
+  var callbacks = parseInt(document.getElementById('prelims-callbacks').value) || 6;
+  var eventName = document.getElementById('prelims-event-name').value || 'Prelims';
+  var compName = document.getElementById('prelims-comp-name').value || '';
+  var rows = document.querySelectorAll('[id^="prelim-row-"]');
+  var competitors = [];
+  rows.forEach(function(row) {
+    var id = row.id.split('-')[2];
+    var name = (document.getElementById('prelim-name-' + id) || {}).value;
+    if (!name || !name.trim()) return;
+    var bib = ((document.getElementById('prelim-bib-' + id) || {}).value || '').trim();
+    var yesVotes = 0, scores = [];
+    for (var j = 1; j <= prelimsJudges; j++) {
+      var el = document.getElementById('prelim-j' + j + '-' + id);
+      var v = el && el.value !== '' ? parseInt(el.value) : null;
+      scores.push(v); if (v === 1) yesVotes++;
+    }
+    competitors.push({ name: name.trim(), bib: bib, yesVotes: yesVotes, scores: scores });
+  });
+  competitors.sort(function(a, b) { return b.yesVotes - a.yesVotes; });
+  var html = '<table><thead><tr><th>Place</th><th>Bib</th><th>Name</th>';
+  for (var j = 1; j <= prelimsJudges; j++) html += '<th>J' + j + '</th>';
+  html += '<th>YES</th><th>Result</th></tr></thead><tbody>';
+  competitors.forEach(function(c, i) {
+    var cb = i < callbacks;
+    html += '<tr class="' + (cb ? 'placed' : 'not-placed') + '"><td>' + (i+1) + '</td><td>' + c.bib + '</td><td style="text-align:left">' + c.name + '</td>';
+    c.scores.forEach(function(s) { html += '<td>' + (s === null ? '&ndash;' : s === 1 ? 'YES' : 'NO') + '</td>'; });
+    html += '<td><strong>' + c.yesVotes + '</strong></td><td style="font-weight:bold;color:' + (cb ? '#155724' : '#721c24') + '">' + (cb ? 'CALLBACK' : 'OUT') + '</td></tr>';
+  });
+  html += '</tbody></table>';
+  document.getElementById('prelims-results-event-name').textContent = eventName;
+  document.getElementById('prelims-results-table').innerHTML = html;
+  document.getElementById('results-prelims').style.display = 'block';
+  document.getElementById('results-prelims').scrollIntoView({ behavior: 'smooth' });
+  addToHistory({ type: 'Prelims', eventName: eventName, compName: compName, numJudges: prelimsJudges, tableHTML: html });
+}
+
+// FINALS
+var finalsJudges = 3, finalsCount = 0;
+function buildFinalsTable() {
+  finalsJudges = parseInt(document.getElementById('finals-num-judges').value) || 3;
+  finalsCount = 0;
+  document.getElementById('finals-competitors-area').innerHTML = '';
+  document.getElementById('finals-entry-section').style.display = 'block';
+  document.getElementById('results-finals').style.display = 'none';
+  for (var i = 0; i < 6; i++) addFinalCompetitor();
+}
+function addFinalCompetitor() {
+  finalsCount++;
+  var area = document.getElementById('finals-competitors-area');
+  var div = document.createElement('div');
+  div.className = 'row'; div.id = 'finals-row-' + finalsCount;
+  div.style.cssText = 'margin-bottom:5px;flex-wrap:wrap';
+  var html = '<input type="text" placeholder="Competitor name" style="width:160px;margin-bottom:0" id="finals-name-' + finalsCount + '">';
+  html += '<span style="font-size:0.85em;padding:0 4px">Bib#</span>';
+  html += '<input type="text" placeholder="Bib" style="width:55px;margin-bottom:0" id="finals-bib-' + finalsCount + '">';
+  for (var j = 1; j <= finalsJudges; j++) {
+    html += '<span style="font-size:0.85em;padding:0 4px">J' + j + ':</span>';
+    html += '<input type="number" min="1" max="99" placeholder="#" id="finals-j' + j + '-' + finalsCount + '" style="width:55px;margin-bottom:0">';
+  }
+  html += '<button class="btn-danger btn-small" onclick="removeFinalRow(' + finalsCount + ')">X</button>';
+  div.innerHTML = html; area.appendChild(div);
+}
+function removeFinalRow(id) { var el = document.getElementById('finals-row-' + id); if (el) el.remove(); }
+function calculateFinals() {
+  var eventName = document.getElementById('finals-event-name').value || 'Finals';
+  var compName = document.getElementById('finals-comp-name').value || '';
+  var placesToAward = parseInt(document.getElementById('finals-places').value) || 3;
+  var rows = document.querySelectorAll('[id^="finals-row-"]');
+  var competitors = [];
+  rows.forEach(function(row) {
+    var id = row.id.split('-')[2];
+    var name = (document.getElementById('finals-name-' + id) || {}).value;
+    if (!name || !name.trim()) return;
+    var bib = ((document.getElementById('finals-bib-' + id) || {}).value || '').trim();
+    var placements = [];
+    for (var j = 1; j <= finalsJudges; j++) {
+      var el = document.getElementById('finals-j' + j + '-' + id);
+      placements.push(el && el.value ? parseInt(el.value) : null);
+    }
+    competitors.push({ name: name.trim(), bib: bib, placements: placements });
+  });
+  if (!competitors.length) { alert('No competitors entered.'); return; }
+  var majority = Math.floor(finalsJudges / 2) + 1;
+  var n = competitors.length;
+  var unplaced = competitors.map(function(_, i) { return i; });
+  var assignedPlace = new Array(n).fill(null);
+  var tieNotes = new Array(n).fill('');
+  for (var place = 1; place <= n && unplaced.length > 0; place++) {
+    var candidates = unplaced.map(function(idx) {
+      var c = competitors[idx];
+      var aoa = c.placements.filter(function(p) { return p !== null && p <= place; }).length;
+      var sum = c.placements.filter(function(p) { return p !== null && p <= place; }).reduce(function(a, b) { return a + b; }, 0);
+      return { idx: idx, atOrAbove: aoa, sumAtOrAbove: sum };
+    });
+    var wm = candidates.filter(function(c) { return c.atOrAbove >= majority; });
+    if (!wm.length) continue;
+    wm.sort(function(a, b) {
+      if (b.atOrAbove !== a.atOrAbove) return b.atOrAbove - a.atOrAbove;
+      return a.sumAtOrAbove - b.sumAtOrAbove;
+    });
+    var groups = [], cur = [wm[0]];
+    for (var i = 1; i < wm.length; i++) {
+      if (wm[i].atOrAbove === cur[0].atOrAbove && wm[i].sumAtOrAbove === cur[0].sumAtOrAbove) cur.push(wm[i]);
+      else { groups.push(cur); cur = [wm[i]]; }
+    }
+    groups.push(cur);
+    var top = groups[0];
+    if (top.length === 1) {
+      assignedPlace[top[0].idx] = place;
+      unplaced = unplaced.filter(function(i) { return i !== top[0].idx; });
+    } else {
+      top.forEach(function(c) {
+        assignedPlace[c.idx] = place;
+        tieNotes[c.idx] = 'tie at ' + place;
+        unplaced = unplaced.filter(function(i) { return i !== c.idx; });
+      });
+      place += top.length - 1;
+    }
+  }
+  var np = n + 1;
+  unplaced.forEach(function(idx) { assignedPlace[idx] = np++; });
+  var sorted = competitors.map(function(c, i) {
+    return Object.assign({}, c, { finalPlace: assignedPlace[i], tieNote: tieNotes[i] });
+  });
+  sorted.sort(function(a, b) { return a.finalPlace - b.finalPlace; });
+  var html = '<table><thead><tr><th>Final Place</th><th>Bib</th><th>Name</th>';
+  for (var j = 1; j <= finalsJudges; j++) html += '<th>Judge ' + j + '</th>';
+  html += '<th>Majority (&ge;' + majority + ')</th><th>Sum</th></tr></thead><tbody>';
+  sorted.forEach(function(c) {
+    var awarded = c.finalPlace <= placesToAward;
+    var aoa = c.placements.filter(function(p) { return p !== null && p <= c.finalPlace; }).length;
+    var sum = c.placements.filter(function(p) { return p !== null && p <= c.finalPlace; }).reduce(function(a, b) { return a + b; }, 0);
+    html += '<tr class="' + (awarded ? 'placed' : '') + '">';
+    html += '<td class="result-place">' + c.finalPlace + (c.tieNote ? '*' : '') + '</td>';
+    html += '<td>' + c.bib + '</td><td style="text-align:left">' + c.name + '</td>';
+    c.placements.forEach(function(p) { html += '<td>' + (p !== null ? p : '&ndash;') + '</td>'; });
+    html += '<td>' + aoa + '</td><td>' + (sum || '&ndash;') + '</td></tr>';
+  });
+  html += '</tbody></table>';
+  if (sorted.some(function(c) { return c.tieNote; }))
+    html += '<p class="tie-note" style="margin-top:6px">* Tie could not be resolved by standard RP. Consider a skate-off or chief judge decision.</p>';
+  html += '<div style="margin-top:14px;padding:10px;border:2px solid #1a1a1a;background:#e8e8e8;"><strong>PLACEMENTS AWARDED:</strong><br>';
+  for (var p = 1; p <= placesToAward; p++) {
+    var labels = ['1st','2nd','3rd','4th','5th','6th','7th','8th'];
+    var label = labels[p-1] || (p + 'th');
+    var winners = sorted.filter(function(c) { return c.finalPlace === p; });
+    html += '<div style="margin-top:4px">' + label + ': <strong>' + winners.map(function(w) { return w.name + (w.bib ? ' (' + w.bib + ')' : ''); }).join(' / ') + '</strong></div>';
+  }
+  html += '</div>';
+  document.getElementById('finals-results-event-name').textContent = eventName;
+  document.getElementById('finals-results-table').innerHTML = html;
+  document.getElementById('results-finals').style.display = 'block';
+  document.getElementById('results-finals').scrollIntoView({ behavior: 'smooth' });
+  addToHistory({ type: 'Finals', eventName: eventName, compName: compName, numJudges: finalsJudges, tableHTML: html });
+}
+</script>
+</body>
+</html>
